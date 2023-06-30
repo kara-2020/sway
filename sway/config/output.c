@@ -400,17 +400,56 @@ static void queue_output_config(struct output_config *oc,
 		set_mode(wlr_output, oc->width, oc->height,
 			oc->refresh_rate, oc->custom_mode == 1);
 	} else if (!wl_list_empty(&wlr_output->modes)) {
-		sway_log(SWAY_DEBUG, "Set preferred mode");
-		struct wlr_output_mode *preferred_mode =
-			wlr_output_preferred_mode(wlr_output);
-		wlr_output_set_mode(wlr_output, preferred_mode);
+		sway_log(SWAY_INFO, "Set preferred (overriden) mode");
+
+		struct wlr_output_mode *mode, *best = NULL;
+
+		// Find the best mode:
+		// Max: 1920x1080 Aspect: 16:9 Refresh: <=60Hz
+		wl_list_for_each(mode, &wlr_output->modes, link) {
+			if (mode->width > 1920 || mode->height > 1080) {
+				continue;
+			}
+			if (mode->refresh > 60000) {
+				continue;
+			}
+			if (mode->width / mode->height == 16 / 9) {
+				best = mode;
+				break;
+			}
+		}
+
+		// If we didn't find a best mode, drop the aspect ratio requirement:
+		// Max: 1920x1080 Refresh: <=60Hz
+		if (!best) {
+			wl_list_for_each(mode, &wlr_output->modes, link) {
+				if (mode->width > 1920 || mode->height > 1080) {
+					continue;
+				}
+				if (mode->refresh > 60000) {
+					continue;
+				}
+				best = mode;
+				break;
+			}
+		}
+
+		// If we still didn't find a best mode, fall back to the preferred mode:
+		if (!best) {
+			best = wlr_output_preferred_mode(wlr_output);
+		}
+
+		sway_log(SWAY_INFO, "Preferred (overridden) mode: %dx%d (%f Hz)",
+			best->width, best->height, best->refresh / 1000.f);
+
+		wlr_output_set_mode(wlr_output, best);
 
 		if (!wlr_output_test(wlr_output)) {
-			sway_log(SWAY_DEBUG, "Preferred mode rejected, "
+			sway_log(SWAY_INFO, "Preferred (overridden) mode rejected, "
 				"falling back to another mode");
 			struct wlr_output_mode *mode;
 			wl_list_for_each(mode, &wlr_output->modes, link) {
-				if (mode == preferred_mode) {
+				if (mode == best) {
 					continue;
 				}
 
